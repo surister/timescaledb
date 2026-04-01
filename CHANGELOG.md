@@ -5,6 +5,38 @@ This page lists all the latest features and updates to TimescaleDB. When
 you use psql to update your database, use the -X flag and prevent any .psqlrc
 commands from accidentally triggering the load of a previous DB version.**
 
+## 2.28.0 (2026-04-01)
+
+This release contains performance improvements and bug fixes since the 2.26.1 release. We recommend that you upgrade at the next available opportunity.
+
+**Highlighted features in TimescaleDB v2.28.0**
+* 
+
+**Backward-Incompatible Changes**
+
+**Features**
+* [#8967](https://github.com/timescale/timescaledb/pull/8967) Rewriting queries with continuous aggregates exactly matching query aggregation
+* [#9192](https://github.com/timescale/timescaledb/pull/9192) Push down scalar array operations into the columnar metadata scan by transforming them into an OR/AND clause.
+* [#9355](https://github.com/timescale/timescaledb/pull/9355) Defer segmentby default for direct compress
+* [#9374](https://github.com/timescale/timescaledb/pull/9374) Use bloom filters to eliminate decompression of unrelated compressed batches during UPSERTs.
+* [#9398](https://github.com/timescale/timescaledb/pull/9398) Fix chunk exclusion for IN/ANY on open (time) dimensions
+* [#9399](https://github.com/timescale/timescaledb/pull/9399) Use bloom filters to reduce decompression during UPDATE/DELETE commands.
+* [#9458](https://github.com/timescale/timescaledb/pull/9458) Remove _timescaledb_functions.repair_relation_acls
+
+**Bugfixes**
+* [#9363](https://github.com/timescale/timescaledb/pull/9363) Change compression job status when chunks could be compressed
+* [#9413](https://github.com/timescale/timescaledb/pull/9413) Fix incorrect decompress markers on full batch delete
+* [#9414](https://github.com/timescale/timescaledb/pull/9414) Fix NULL compression handling in estimate_uncompressed_size
+* [#9417](https://github.com/timescale/timescaledb/pull/9417) Fix segfault in bloom1_contains
+
+**New Settings**
+* `enable_cagg_rewrites`: enables rewriting queries with CAggs. Off by default. `cagg_rewrites_debug_info`: prints CAgg rewrites diagnostics. Off by default.
+* `enable_columnar_scan_filter_pushdown`: enables pushing the filters on columnar scan down to the compressed scan level. On by default.
+
+**GUCs**
+
+**Thanks**
+
 ## 2.26.1 (2026-03-30)
 
 This release contains bug fixes since the 2.26.0 release. We recommend that you upgrade at the next available opportunity.
