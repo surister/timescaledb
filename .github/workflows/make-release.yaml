@@ -1,0 +1,192 @@
+name: Make release
+
+"on":
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Tag to create. Defaults to the version from version.config."
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  pre_release_sanity:
+    name: Pre-release sanity checks
+    uses: ./.github/workflows/prerelease-sanity.yaml
+    permissions:
+      contents: read
+
+  release:
+    name: Create and publish release
+    needs: pre_release_sanity
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout TimescaleDB
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.ORG_AUTOMATION_TOKEN }}
+
+    - name: Configure git user
+      run: |
+        git config user.name "timescale-automation"
+        git config user.email "123763385+github-actions[bot]@users.noreply.github.com"
+
+    - name: Collect release metadata
+      id: metadata
+      env:
+        INPUT_TAG_NAME: ${{ inputs.tag_name }}
+      run: |
+        set -euo pipefail
+
+        version=$(sed -n "s/^version = //p" version.config)
+        if [[ -z "${version}" ]]
+        then
+          echo "version.config does not contain a version" >&2
+          exit 1
+        fi
+
+        if [[ "${version}" == *-dev ]]
+        then
+          echo "Refusing to release development version ${version}" >&2
+          exit 1
+        fi
+
+        tag_name="${INPUT_TAG_NAME}"
+        if [[ -z "${tag_name}" ]]
+        then
+          tag_name="${version}"
+        fi
+
+        if [[ "${tag_name}" != "${version}" ]]
+        then
+          echo "Tag ${tag_name} does not match version.config version ${version}" >&2
+          exit 1
+        fi
+
+        release_branch=$(echo "${version}" | sed "s/\([0-9]\+\.[0-9]\+\.\).*/\1x/")
+        target_sha=$(git rev-parse HEAD)
+
+        {
+          echo "version=${version}"
+          echo "tag_name=${tag_name}"
+          echo "release_branch=${release_branch}"
+          echo "target_sha=${target_sha}"
+          echo "target_ref=${GITHUB_REF_NAME}"
+          echo "run_url=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+        } >> "${GITHUB_OUTPUT}"
+
+    - name: Create release tag
+      env:
+        TAG_NAME: ${{ steps.metadata.outputs.tag_name }}
+        TARGET_SHA: ${{ steps.metadata.outputs.target_sha }}
+      run: |
+        set -euo pipefail
+
+        if git ls-remote --exit-code --tags origin "refs/tags/${TAG_NAME}" >/dev/null
+        then
+          echo "Tag ${TAG_NAME} already exists on origin" >&2
+          exit 1
+        else
+          status=$?
+          if [[ "${status}" -ne 2 ]]
+          then
+            exit "${status}"
+          fi
+        fi
+
+        git tag -a "${TAG_NAME}" "${TARGET_SHA}" -m "Release ${TAG_NAME}"
+        git push origin "refs/tags/${TAG_NAME}"
+
+    - name: Create draft GitHub release
+      id: draft_release
+      env:
+        GH_TOKEN: ${{ secrets.ORG_AUTOMATION_TOKEN }}
+        TAG_NAME: ${{ steps.metadata.outputs.tag_name }}
+        TARGET_SHA: ${{ steps.metadata.outputs.target_sha }}
+      run: |
+        set -euo pipefail
+
+        release_json=$(
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/releases" \
+            -f tag_name="${TAG_NAME}" \
+            -f target_commitish="${TARGET_SHA}" \
+            -f name="${TAG_NAME}" \
+            -f body="Release ${TAG_NAME}" \
+            -F draft=true \
+            -F prerelease=false
+        )
+
+        release_id=$(jq -r ".id" <<<"${release_json}")
+        release_url=$(jq -r ".html_url" <<<"${release_json}")
+
+        {
+          echo "release_id=${release_id}"
+          echo "release_url=${release_url}"
+        } >> "${GITHUB_OUTPUT}"
+
+    - name: Print release metadata
+      env:
+        TAG_NAME: ${{ steps.metadata.outputs.tag_name }}
+        VERSION: ${{ steps.metadata.outputs.version }}
+        RELEASE_BRANCH: ${{ steps.metadata.outputs.release_branch }}
+        TARGET_REF: ${{ steps.metadata.outputs.target_ref }}
+        TARGET_SHA: ${{ steps.metadata.outputs.target_sha }}
+        RELEASE_ID: ${{ steps.draft_release.outputs.release_id }}
+        RELEASE_URL: ${{ steps.draft_release.outputs.release_url }}
+        RUN_URL: ${{ steps.metadata.outputs.run_url }}
+      run: |
+        set -euo pipefail
+
+        printf '%s\n' \
+          "Release metadata" \
+          "----------------" \
+          "Version: ${VERSION}" \
+          "Tag: ${TAG_NAME}" \
+          "Release branch: ${RELEASE_BRANCH}" \
+          "Target ref: ${TARGET_REF}" \
+          "Target SHA: ${TARGET_SHA}" \
+          "Draft release ID: ${RELEASE_ID}" \
+          "Draft release URL: ${RELEASE_URL}" \
+          "Workflow run: ${RUN_URL}"
+
+        {
+          echo "# Make release"
+          echo
+          echo "| Field | Value |"
+          echo "| --- | --- |"
+          echo "| Version | \`${VERSION}\` |"
+          echo "| Tag | \`${TAG_NAME}\` |"
+          echo "| Release branch | \`${RELEASE_BRANCH}\` |"
+          echo "| Target ref | \`${TARGET_REF}\` |"
+          echo "| Target SHA | \`${TARGET_SHA}\` |"
+          echo "| Draft release ID | \`${RELEASE_ID}\` |"
+          echo "| Draft release URL | ${RELEASE_URL} |"
+          echo "| Workflow run | ${RUN_URL} |"
+        } >> "${GITHUB_STEP_SUMMARY}"
+
+    - name: Publish GitHub release
+      id: publish_release
+      env:
+        GH_TOKEN: ${{ secrets.ORG_AUTOMATION_TOKEN }}
+        RELEASE_ID: ${{ steps.draft_release.outputs.release_id }}
+      run: |
+        set -euo pipefail
+
+        published_json=$(
+          gh api \
+            --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
+            -F draft=false
+        )
+
+        published_url=$(jq -r ".html_url" <<<"${published_json}")
+
+        echo "published_url=${published_url}" >> "${GITHUB_OUTPUT}"
+        echo "Published release: ${published_url}"
+        echo "| Published release URL | ${published_url} |" >> "${GITHUB_STEP_SUMMARY}"
