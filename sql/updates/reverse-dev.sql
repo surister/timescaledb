@@ -1,11 +1,49 @@
+-- Restore chunk_constraint rows for CHECK constraints on OSM chunks.
+INSERT INTO _timescaledb_catalog.chunk_constraint
+    (chunk_id, dimension_slice_id, constraint_name, hypertable_constraint_name)
+SELECT c.id, NULL, con.conname, con.conname
+FROM _timescaledb_catalog.chunk c
+JOIN _timescaledb_catalog.hypertable ht ON ht.id = c.hypertable_id
+JOIN pg_constraint con
+    ON con.conrelid = pg_catalog.format('%I.%I', ht.schema_name, ht.table_name)::regclass
+    AND con.contype = 'c'
+WHERE c.osm_chunk
+ON CONFLICT DO NOTHING;
 
--- Re-add self-referential foreign keys
-ALTER TABLE _timescaledb_catalog.hypertable ADD CONSTRAINT hypertable_compressed_hypertable_id_fkey FOREIGN KEY (compressed_hypertable_id) REFERENCES _timescaledb_catalog.hypertable (id);
-ALTER TABLE _timescaledb_catalog.chunk ADD CONSTRAINT chunk_compressed_chunk_id_fkey FOREIGN KEY (compressed_chunk_id) REFERENCES _timescaledb_catalog.chunk (id);
+-- Restore chunk_constraint rows for outbound FKs, derived from the
+-- DEPENDENCY_AUTO edge that replaced them.
+INSERT INTO _timescaledb_catalog.chunk_constraint
+    (chunk_id, dimension_slice_id, constraint_name, hypertable_constraint_name)
+SELECT c.id, NULL, child.conname, parent.conname
+FROM _timescaledb_catalog.chunk c
+JOIN _timescaledb_catalog.hypertable ht ON ht.id = c.hypertable_id
+JOIN pg_constraint child
+    ON child.conrelid = pg_catalog.format('%I.%I', c.schema_name, c.table_name)::regclass
+    AND child.contype = 'f'
+JOIN pg_depend d
+    ON d.classid = 'pg_constraint'::regclass
+    AND d.objid = child.oid
+    AND d.refclassid = 'pg_constraint'::regclass
+    AND d.deptype = 'a'
+JOIN pg_constraint parent
+    ON parent.oid = d.refobjid
+    AND parent.conrelid = pg_catalog.format('%I.%I', ht.schema_name, ht.table_name)::regclass
+    AND parent.contype = 'f'
+ON CONFLICT DO NOTHING;
 
-DROP FUNCTION IF EXISTS _timescaledb_functions.bloom1_contains_any_hashes(_timescaledb_internal.bloom1, bigint[]);
-DROP FUNCTION IF EXISTS _timescaledb_functions.bloom1_hash(anyelement);
+DELETE FROM pg_catalog.pg_depend d
+USING pg_constraint child,
+      pg_constraint parent,
+      _timescaledb_catalog.chunk c,
+      _timescaledb_catalog.hypertable ht
+WHERE d.classid = 'pg_constraint'::regclass
+  AND d.objid = child.oid
+  AND d.refclassid = 'pg_constraint'::regclass
+  AND d.refobjid = parent.oid
+  AND d.deptype = 'a'
+  AND child.contype = 'f'
+  AND parent.contype = 'f'
+  AND ht.id = c.hypertable_id
+  AND child.conrelid = pg_catalog.format('%I.%I', c.schema_name, c.table_name)::regclass
+  AND parent.conrelid = pg_catalog.format('%I.%I', ht.schema_name, ht.table_name)::regclass;
 
--- Drop BIGINT-returning version so the downgrade script can recreate the
--- INTEGER-returning version of compressed_data_column_size.
-DROP FUNCTION IF EXISTS _timescaledb_functions.compressed_data_column_size(_timescaledb_internal.compressed_data, ANYELEMENT);

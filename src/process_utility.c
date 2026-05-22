@@ -72,6 +72,7 @@
 #include "extension.h"
 #include "extension_constants.h"
 #include "foreign_key.h"
+#include "guc.h"
 #include "hypercube.h"
 #include "hypertable.h"
 #include "hypertable_cache.h"
@@ -1287,6 +1288,28 @@ process_vacuum(ProcessUtilityArgs *args)
 
 			if (OidIsValid(table_relid))
 			{
+				/*
+				 * Continuous aggregates expose a view to the user, which
+				 * VACUUM/ANALYZE refuses to process. Redirect to the
+				 * underlying materialization hypertable so its chunks (and
+				 * any compressed chunks) are processed instead.
+				 */
+				ContinuousAgg *cagg = ts_continuous_agg_find_by_relid(table_relid);
+				if (cagg)
+				{
+					Hypertable *mat_ht = ts_hypertable_get_by_id(cagg->data.mat_hypertable_id);
+					if (mat_ht)
+					{
+						RangeVar *mat_rv = makeRangeVar(pstrdup(NameStr(mat_ht->fd.schema_name)),
+														pstrdup(NameStr(mat_ht->fd.table_name)),
+														-1);
+						vacuum_rel = makeVacuumRelation(mat_rv,
+														mat_ht->main_table_relid,
+														vacuum_rel->va_cols);
+						table_relid = mat_ht->main_table_relid;
+					}
+				}
+
 				ht = ts_hypertable_cache_get_entry(hcache, table_relid, CACHE_FLAG_MISSING_OK);
 
 				if (ht)
@@ -1431,10 +1454,13 @@ process_truncate(ProcessUtilityArgs *args)
 						 * longer has any data */
 						raw_ht = ts_hypertable_get_by_id(cagg->data.raw_hypertable_id);
 						Assert(raw_ht != NULL);
-						ts_cm_functions->continuous_agg_invalidate_mat_ht(raw_ht,
-																		  mat_ht,
-																		  TS_TIME_NOBEGIN,
-																		  TS_TIME_NOEND);
+						if (!ts_guc_skip_cagg_invalidation)
+						{
+							ts_cm_functions->continuous_agg_invalidate_mat_ht(raw_ht,
+																			  mat_ht,
+																			  TS_TIME_NOBEGIN,
+																			  TS_TIME_NOEND);
+						}
 
 						/* Additionally, this cagg's materialization hypertable could be the
 						 * underlying hypertable for other caggs defined on top of it, in that case
@@ -1442,7 +1468,7 @@ process_truncate(ProcessUtilityArgs *args)
 						ContinuousAggHypertableStatus agg_status;
 
 						agg_status = ts_continuous_agg_hypertable_status(mat_ht->fd.id);
-						if (agg_status & HypertableIsRawTable)
+						if ((agg_status & HypertableIsRawTable) && !ts_guc_skip_cagg_invalidation)
 						{
 							ts_cm_functions->continuous_agg_invalidate_raw_ht(mat_ht,
 																			  TS_TIME_NOBEGIN,
@@ -1487,7 +1513,7 @@ process_truncate(ProcessUtilityArgs *args)
 									 errhint("TRUNCATE the continuous aggregate instead.")));
 						}
 
-						if (agg_status == HypertableIsRawTable)
+						if (agg_status == HypertableIsRawTable && !ts_guc_skip_cagg_invalidation)
 						{
 							/* The truncation invalidates all associated continuous aggregates */
 							ts_cm_functions->continuous_agg_invalidate_raw_ht(ht,
@@ -1531,7 +1557,9 @@ process_truncate(ProcessUtilityArgs *args)
 
 						/* If the hypertable has continuous aggregates, then invalidate
 						 * the truncated region. */
-						if (ts_continuous_agg_hypertable_status(ht->fd.id) == HypertableIsRawTable)
+						if (ts_continuous_agg_hypertable_status(ht->fd.id) ==
+								HypertableIsRawTable &&
+							!ts_guc_skip_cagg_invalidation)
 						{
 							ts_continuous_agg_invalidate_chunk(ht, chunk);
 						}
@@ -1714,7 +1742,8 @@ process_drop_chunk(ProcessUtilityArgs *args, DropStmt *stmt)
 
 			/* If the hypertable has continuous aggregates, then invalidate
 			 * the dropped region. */
-			if (ts_continuous_agg_hypertable_status(ht->fd.id) == HypertableIsRawTable)
+			if (ts_continuous_agg_hypertable_status(ht->fd.id) == HypertableIsRawTable &&
+				!ts_guc_skip_cagg_invalidation)
 			{
 				ts_continuous_agg_invalidate_chunk(ht, chunk);
 			}
@@ -2661,8 +2690,36 @@ rename_hypertable_constraint(Hypertable *ht, Oid chunk_relid, void *arg)
 {
 	RenameStmt *stmt = (RenameStmt *) arg;
 	Chunk *chunk = ts_chunk_get_by_relid(chunk_relid, true);
+	Oid chunk_con_oid;
+	Oid parent_con_oid;
 
 	ts_chunk_constraint_rename_hypertable_constraint(chunk->fd.id, stmt->subname, stmt->newname);
+
+	/* Inherited FKs aren't in chunk_constraint; locate the chunk-side
+	 * constraint via the pg_depend edge to handle legacy names. */
+	chunk_con_oid = InvalidOid;
+	parent_con_oid = get_relation_constraint_oid(ht->main_table_relid, stmt->subname, true);
+	if (OidIsValid(parent_con_oid))
+	{
+		chunk_con_oid = ts_chunk_find_outbound_fk_by_parent(chunk_relid, parent_con_oid);
+	}
+	if (OidIsValid(chunk_con_oid))
+	{
+		char *old_name = get_constraint_name(chunk_con_oid);
+
+		if (old_name != NULL && strcmp(old_name, stmt->newname) != 0)
+		{
+			RenameStmt rename = {
+				.type = T_RenameStmt,
+				.renameType = OBJECT_TABCONSTRAINT,
+				.relation =
+					makeRangeVar(NameStr(chunk->fd.schema_name), NameStr(chunk->fd.table_name), 0),
+				.subname = old_name,
+				.newname = stmt->newname,
+			};
+			RenameConstraint(&rename);
+		}
+	}
 }
 
 static void
@@ -2692,7 +2749,17 @@ alter_hypertable_constraint(Hypertable *ht, Oid chunk_relid, void *arg)
 		ts_chunk_constraint_get_name_from_hypertable_constraint(chunk_relid,
 																hypertable_constraint_name);
 
-	AlterTableInternal(chunk_relid, list_make1(cmd), false);
+	if (cmd_constraint->conname != NULL)
+	{
+		AlterTableInternal(chunk_relid, list_make1(cmd), false);
+	}
+	else
+	{
+		elog(DEBUG1,
+			 "skipping ALTER CONSTRAINT \"%s\" on chunk \"%s\": no matching constraint",
+			 hypertable_constraint_name,
+			 get_rel_name(chunk_relid));
+	}
 
 	/* Restore for next iteration */
 	cmd_constraint->conname = hypertable_constraint_name;
@@ -3693,19 +3760,48 @@ process_index_start(ProcessUtilityArgs *args)
 		if (cagg)
 		{
 			ht = ts_hypertable_get_by_id(cagg->data.mat_hypertable_id);
+
+			if (stmt->unique)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("continuous aggregates do not support UNIQUE indexes")));
+			}
+		}
+
+		if (stmt->unique || stmt->primary)
+		{
+			/*
+			 * When building a unique index on a chunk, there may be compressed data
+			 * present on the chunk that would not be considered by postgres validity
+			 * check. We need to check for constraint violations ourselves in those
+			 * cases.
+			 */
+			Oid relid = RangeVarGetRelid(stmt->relation, NoLock, true);
+
+			if (OidIsValid(relid))
+			{
+				Chunk *chunk = ts_chunk_get_by_relid(relid, false);
+
+				if (chunk && ts_chunk_is_compressed(chunk))
+				{
+					/*
+					 * Expression index elements are still raw parse trees at that point
+					 * and cannot be passed to deparse_expression directly, so run the
+					 * standard PostgreSQL transformation first.
+					 */
+					Relation rel = table_open(chunk->table_id, AccessShareLock);
+					IndexStmt *transformed = transformIndexStmt(chunk->table_id, stmt, NULL);
+					table_close(rel, NoLock);
+					validate_index_constraints(chunk, transformed);
+				}
+			}
 		}
 
 		if (!ht)
 		{
 			ts_cache_release(&hcache);
 			return DDL_CONTINUE;
-		}
-
-		if (stmt->unique)
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("continuous aggregates do not support UNIQUE indexes")));
 		}
 
 		/* Make the RangeVar for the underlying materialization hypertable */
@@ -4857,7 +4953,7 @@ continuous_agg_with_clause_perm_check(ContinuousAgg *cagg, Oid view_relid)
 {
 	Oid ownerid = ts_rel_get_owner(view_relid);
 
-	if (!has_privs_of_role(GetUserId(), ownerid))
+	if (!ts_has_owner_privs(GetUserId(), ownerid))
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
