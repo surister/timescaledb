@@ -2,6 +2,38 @@
 
 **Please note: When updating your database, you should connect using `psql` with the `-X` flag to prevent any `.psqlrc` commands from accidentally triggering the load of a previous TimescaleDB version.**
 
+## 2.28.0 (2026-05-26)
+
+This release contains performance improvements and bug fixes since the 2.27.1 release. We recommend that you upgrade at the next available opportunity.
+
+**Highlighted features in TimescaleDB v2.28.0**
+* 
+
+**Backward-Incompatible Changes**
+
+**Features**
+* [#4054](https://github.com/timescale/timescaledb/pull/4054) Support ANALYZE and VACUUM on continuous aggregates by redirecting to the underlying materialization hypertable
+* [#9125](https://github.com/timescale/timescaledb/pull/9125) Increase the parallelism of SELECT queries over compressed hypertables to approximately match the uncompressed data size
+* [#9416](https://github.com/timescale/timescaledb/pull/9416) Support some forms of CASE expression in columnar aggregation and grouping
+* [#9580](https://github.com/timescale/timescaledb/pull/9580) Add first/last sparse indexes to compression
+* [#9668](https://github.com/timescale/timescaledb/pull/9668) Allow database owner to configure hypertables and policies
+* [#9821](https://github.com/timescale/timescaledb/pull/9821) Allow subquery results which are exec params as gapfill arguments
+* [#9842](https://github.com/timescale/timescaledb/pull/9842) Suppress continuous aggregate invalidation tracking during bulk loads
+* [#9878](https://github.com/timescale/timescaledb/pull/9878) Remove chunk_constraint catalog tracking for foreign keys
+
+**Bugfixes**
+* [#9708](https://github.com/timescale/timescaledb/pull/9708) Guard time bucket parameter handling against bad input
+* [#9745](https://github.com/timescale/timescaledb/pull/9745) Check constrainsts when adding unique constraints to chunks
+
+**New Settings**
+* `skip_cagg_invalidation`: skip continuous aggregate invalidation tracking for DML and DDL in the current session/transaction. Off by default.
+
+**GUCs**
+
+**Thanks**
+* @otjdiepluong for fixing spelling mistakes in timescaledb source code comments
+* @scimad and @Nosfistis for suggesting expanding coverage for gapfill arguments
+
 ## 2.27.1 (2026-05-19)
 
 This release contains performance improvements and bug fixes since the 2.27.0 release. We recommend that you upgrade at the next available opportunity.
