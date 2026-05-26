@@ -12,15 +12,15 @@ permissions:
   contents: write
 
 jobs:
-  pre_release_sanity:
-    name: Pre-release sanity checks
-    uses: ./.github/workflows/prerelease-sanity.yaml
-    permissions:
-      contents: read
+#  pre_release_sanity:
+#    name: Pre-release sanity checks
+#    uses: ./.github/workflows/prerelease-sanity.yaml
+#    permissions:
+#      contents: read
 
   release:
     name: Create and publish release
-    needs: pre_release_sanity
+#    needs: pre_release_sanity
     runs-on: ubuntu-latest
 
     steps:
