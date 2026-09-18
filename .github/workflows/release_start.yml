@@ -7,7 +7,7 @@ on:
         required: true
         type: string
       dry_run:
-        description: "Dry run, disable to run full release"
+        description: "Dry run, uncheck to run full release"
         default: true
         type: boolean
 

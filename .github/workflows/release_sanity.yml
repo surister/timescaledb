@@ -56,3 +56,19 @@ jobs:
       - name: No .unreleased files are left behind
         run: |
           ! compgen -G '.unreleased/*'
+
+      # The SQL upgrade scripts must be moved from the development files to
+      # the respective versioned files.
+      - name: The latest-dev.sql and the reverse-dev.sql must be empty
+        run: |
+          if [ -s sql/updates/latest-dev.sql ]
+          then
+              echo "latest-dev.sql is not empty"
+              exit 1
+          fi
+
+          if [ -s sql/updates/reverse-dev.sql ]
+          then
+              echo "reverse-dev.sql is not empty"
+              exit 1
+          fi
