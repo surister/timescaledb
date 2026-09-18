@@ -1,0 +1,19 @@
+name: Start release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to use"
+        required: true
+        type: string
+
+
+jobs:
+  release:
+    name: Release mechanism
+    secrets: inherit
+    with:
+      version: ${{ inputs.version }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release_release.yml
