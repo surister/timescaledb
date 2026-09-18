@@ -7,7 +7,7 @@ on:
         required: true
         type: string
       dry_run:
-        description: "Run release sanity checks without creating the release"
+        description: "Dry run, disable to run full release"
         default: true
         type: boolean
 
@@ -22,6 +22,7 @@ jobs:
 
   release:
     name: Release mechanism
+    needs: validation
     if: ${{ !inputs.dry_run }}
     secrets: inherit
     with:
