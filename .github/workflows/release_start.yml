@@ -6,11 +6,23 @@ on:
         description: "Version to use"
         required: true
         type: string
+      dry_run:
+        description: "Run release sanity checks without creating the release"
+        default: true
+        type: boolean
 
 
 jobs:
+  validation:
+    name: Release sanity
+    secrets: inherit
+    with:
+      version: ${{ inputs.version }}
+    uses: ./.github/workflows/release_sanity.yml
+
   release:
     name: Release mechanism
+    if: ${{ !inputs.dry_run }}
     secrets: inherit
     with:
       version: ${{ inputs.version }}
