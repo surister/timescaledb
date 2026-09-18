@@ -28,9 +28,9 @@ jobs:
           input_version="${{ inputs.version }}"
 
           echo "Input version: $input_version"
-          echo "version.config version: local_version"
+          echo "version.config version: $local_version"
 
-          if [ "local_version" != "$input_version" ]; then
+          if [ "$local_version" != "$input_version" ]; then
             echo "::error::version.config must contain '$input_version', got '$local_version'"
             exit 1
           fi
