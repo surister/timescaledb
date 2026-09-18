@@ -48,7 +48,8 @@ jobs:
 
   build_windows:
     needs: create_release
-    uses: timescale/release-build-scripts/.github/workflows/timescaledb-windows.yml@main
+    # todo change to timescaledb
+    uses: surister/release-build-scripts/.github/workflows/timescaledb-windows.yml@main
     with:
       version: ${{ inputs.version }}
       upload-artifacts: true
