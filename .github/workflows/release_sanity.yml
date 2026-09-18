@@ -24,14 +24,14 @@ jobs:
       # specified
       - name: The release branch must have a correct version.
         run: |
-          release_version="$(sed -n 's/^version = //p' version.config)"
+          local_version="$(sed -n 's/^version = //p' version.config)"
           input_version="${{ inputs.version }}"
 
           echo "Input version: $input_version"
-          echo "version.config version: $release_version"
+          echo "version.config version: local_version"
 
-          if [ "$release_version" != "$input_version" ]; then
-            echo "::error::version.config must contain '$input_version', got '$release_version'"
+          if [ "local_version" != "$input_version" ]; then
+            echo "::error::version.config must contain '$input_version', got '$local_version'"
             exit 1
           fi
 
