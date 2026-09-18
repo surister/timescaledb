@@ -12,4 +12,6 @@ on:
 jobs:
   release:
     name: Release mechanisms
-    uses: .github/workflows/release_release.yaml
+    uses: .github/workflows/release_release.yml
+    with:
+      version: ${{ inputs.version }}
