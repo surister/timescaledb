@@ -46,18 +46,17 @@ jobs:
             --title "${title}" \
             --notes "Draft release for ${{ inputs.version }}"
 
-  build_windows:
-    needs: create_release
-    # todo change to timescaledb
-    uses: surister/release-build-scripts/.github/workflows/timescaledb-windows.yml@main
-    with:
-      version: ${{ inputs.version }}
-      upload-artifacts: true
-    secrets: inherit
+#  build_windows:
+#    needs: create_release
+#    uses: timescale/release-build-scripts/.github/workflows/timescaledb-windows.yml@main
+#    with:
+#      version: ${{ inputs.version }}
+#      upload-artifacts: true
+#    secrets: inherit
   publish_release:
     needs:
       - create_release
-      - build_windows
+#      - build_windows
     runs-on: ubuntu-latest #runs-on/fleet=linux-2cpu/env=prod
     steps:
       - name: Check windows binaries are uploaded
