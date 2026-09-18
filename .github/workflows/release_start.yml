@@ -9,6 +9,13 @@ on:
 
 
 jobs:
+  validation:
+    name: Release sanity
+    secrets: inherit
+    with:
+      version: ${{ inputs.version }}
+    uses: ./.github/workflows/release_sanity.yml
+
   release:
     name: Release mechanism
     secrets: inherit
