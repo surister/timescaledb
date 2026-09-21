@@ -17,6 +17,19 @@ jobs:
       registry: prod
     secrets: inherit
 
+  docker_image_cooldown:
+    name: Docker image propagation cooldown
+    needs: build_docker_image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for image propagation
+        run: sleep 15
+
+  test_docker_images:
+    name: Test Docker images
+    needs: docker_image_cooldown
+    uses: ./.github/workflows/docker-images.yaml
+
   build_apt_packages:
     name: Build APT packages
     uses: timescale/release-build-scripts/.github/workflows/timescaledb-apt.yml@main
@@ -24,6 +37,19 @@ jobs:
       version: ${{ inputs.version }}
       upload-artifacts: true
     secrets: inherit
+
+  apt_packages_cooldown:
+    name: APT package propagation cooldown
+    needs: build_apt_packages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for package propagation
+        run: sleep 15
+
+  test_apt_packages:
+    name: Test APT packages
+    needs: apt_packages_cooldown
+    uses: ./.github/workflows/apt-packages.yaml
 
   build_rpm_packages:
     name: Build RPM packages
@@ -33,6 +59,19 @@ jobs:
       upload-artifacts: true
     secrets: inherit
 
+  rpm_package_cooldown:
+    name: RPM package propagation cooldown
+    needs: build_rpm_packages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for package propagation
+        run: sleep 15
+
+  test_rpm_packages:
+    name: Test RPM packages
+    needs: rpm_package_cooldown
+    uses: ./.github/workflows/rpm-packages.yaml
+
   build_homebrew_packages:
     name: Build Homebrew package
     uses: timescale/release-build-scripts/.github/workflows/timescaledb-homebrew.yml@main
@@ -40,3 +79,16 @@ jobs:
       version: ${{ inputs.version }}
       upload-artifacts: true
     secrets: inherit
+
+  homebrew_package_cooldown:
+    name: Homebrew package propagation cooldown
+    needs: build_homebrew_packages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for package propagation
+        run: sleep 15
+
+  test_homebrew_package:
+    name: Test Homebrew package
+    needs: homebrew_package_cooldown
+    uses: ./.github/workflows/homebrew.yaml
