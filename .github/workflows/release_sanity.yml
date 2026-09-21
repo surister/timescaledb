@@ -2,8 +2,7 @@
 # [x.x.x] release branch is in a correct releasable state.
 # This workflow is meant to be used by other workflows.
 
-# [version] must be given by the release manager
-# [x.x.x] is selected upon running the
+# [version] must be given by the release manager.
 
 name: Release sanity
 on:
@@ -13,20 +12,19 @@ on:
         required: true
         type: string
 
-permissions:
-  contents: read
-  issues: read
-
 jobs:
   # Tests that the release has a releaseable state.
   release_sanity:
     name: Validate release conditions
     runs-on: ubuntu-latest #runs-on/fleet=linux-2cpu/env=prod
+    permissions:
+      contents: read
+      issues: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # 7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # The release branch must have the exact version the release manager
-      # specified
+      # specified.
       - name: The release branch must have a correct version.
         run: |
           local_version="$(sed -n 's/^version = //p' version.config)"
@@ -40,9 +38,7 @@ jobs:
             exit 1
           fi
 
-
-      # The release commit (the last commit in a tag) has to follow a name
-      # convention: "Release `version`"
+      # The release commit has to follow a name convention: "Release `version`".
       - name: Last commit has correct name
         run: |
           required_title="Release ${{ inputs.version }}"
@@ -113,3 +109,33 @@ jobs:
               --jq '.[] | "- #\(.number) \(.title) (\(.html_url))"'
             exit 1
           fi
+
+  regression:
+    name: Regression
+    needs: release_sanity
+    uses: ./.github/workflows/linux-build-and-test.yaml
+
+  regression_linux_i386:
+    name: Regression Linux i386
+    needs: release_sanity
+    uses: ./.github/workflows/linux-32bit-build-and-test.yaml
+
+  regression_windows:
+    name: Regression Windows
+    needs: release_sanity
+    uses: ./.github/workflows/windows-build-and-test.yaml
+
+  update_and_downgrade:
+    name: Update and Downgrade
+    needs: release_sanity
+    uses: ./.github/workflows/update-test.yaml
+
+  pg_upgrade:
+    name: pg_upgrade test
+    needs: release_sanity
+    uses: ./.github/workflows/pg_upgrade-test.yaml
+
+  abi:
+    name: ABI Test
+    needs: release_sanity
+    uses: ./.github/workflows/abi.yaml
