@@ -18,7 +18,8 @@ permissions:
   issues: read
 
 jobs:
-  validate_pre_release:
+  # Tests that the release has a releaseable state.
+  release_sanity:
     name: Validate release conditions
     runs-on: ubuntu-latest #runs-on/fleet=linux-2cpu/env=prod
     steps:
