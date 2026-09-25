@@ -21,6 +21,12 @@ jobs:
     runs-on: ubuntu-latest #runs-on/fleet=linux-2cpu/env=prod
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # 7.0.1
+
+      # git user config timescale-automation
+      - run: |
+          git config user.name "timescale-automation"
+          git config user.email "123763385+github-actions[bot]@users.noreply.github.com"
+
       - name: Create tag
         run: |
           tsdb_version="$(awk -F ' = ' '$1 == "version" { print $2 }' version.config)"
@@ -46,18 +52,18 @@ jobs:
             --title "${title}" \
             --notes "Draft release for ${{ inputs.version }}"
 
-#  build_windows:
-#    name: Build Windows binaries
-#    needs: create_release
-#    uses: timescale/release-build-scripts/.github/workflows/timescaledb-windows.yml@main
-#    with:
-#      version: ${{ inputs.version }}
-#      upload-artifacts: true
-#    secrets: inherit
+  build_windows:
+    name: Build Windows binaries
+    needs: create_release
+    uses: timescale/release-build-scripts/.github/workflows/timescaledb-windows.yml@main
+    with:
+      version: ${{ inputs.version }}
+      upload-artifacts: true
+    secrets: inherit
   publish_release:
     needs:
       - create_release
-#      - build_windows
+      - build_windows
     runs-on: ubuntu-latest #runs-on/fleet=linux-2cpu/env=prod
     steps:
       - name: Check windows binaries are uploaded
